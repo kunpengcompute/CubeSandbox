@@ -559,6 +559,8 @@ type ListCubeSandboxRes struct {
 	Data      []*SandboxBriefData `json:"data,omitempty"`
 }
 
+// SandboxBriefData is the list view of one sandbox. CreateAt and PauseAt are
+// Unix nanoseconds; EndAt is Unix milliseconds.
 type SandboxBriefData struct {
 	SandboxID  string `json:"sandbox_id,omitempty"`
 	Status     int32  `json:"status,omitempty"`
@@ -605,6 +607,8 @@ type GetCubeSandboxRes struct {
 	Data      []*SandboxData `json:"data,omitempty"`
 }
 
+// SandboxData is the detail view of one sandbox. CreateAt is Unix
+// nanoseconds; EndAt is Unix milliseconds.
 type SandboxData struct {
 	SandboxID              string             `json:"sandbox_id,omitempty"`
 	Status                 int32              `json:"status,omitempty"`

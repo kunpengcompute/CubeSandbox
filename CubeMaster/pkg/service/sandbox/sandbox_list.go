@@ -149,7 +149,18 @@ func mergePauseBindings(ctx context.Context, req *types.ListCubeSandboxReq, rsp 
 		return
 	}
 	labelFiltered := req.Filter != nil && len(req.Filter.LabelSelector) > 0
-	rsp.Data = applyPauseBindings(rsp.Data, records, labelFiltered, shouldAppendShimlessPauseRows(req, rsp))
+	appendMissing := shouldAppendShimlessPauseRows(req, rsp)
+	var createdAts map[string]time.Time
+	if appendMissing {
+		if ids := missingShimlessBindingIDs(rsp.Data, records); len(ids) > 0 {
+			var createdAtErr error
+			createdAts, createdAtErr = sandboxspec.GetCreatedAtMany(ctx, ids)
+			if createdAtErr != nil && !errors.Is(createdAtErr, sandboxspec.ErrSandboxSpecStoreNotReady) {
+				log.G(ctx).Warnf("ListSandbox: read sandbox creation times: %v", createdAtErr)
+			}
+		}
+	}
+	rsp.Data = applyPauseBindings(rsp.Data, records, labelFiltered, appendMissing, createdAts)
 }
 
 // shouldAppendShimlessPauseRows is true for a single-host list and for the
@@ -169,8 +180,29 @@ func shouldAppendShimlessPauseRows(req *types.ListCubeSandboxReq, rsp *types.Lis
 	return rsp.EndIdx >= rsp.Total
 }
 
+// missingShimlessBindingIDs lists pause bindings that the node scan did not
+// return and whose rows therefore need a durable creation time.
+func missingShimlessBindingIDs(items []*types.SandboxBriefData, records []*pausesnap.Record) []string {
+	known := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item != nil && item.SandboxID != "" {
+			known[item.SandboxID] = struct{}{}
+		}
+	}
+	var ids []string
+	for _, rec := range records {
+		if rec == nil || rec.SandboxID == "" || !isShimlessPauseStatus(rec.Status) {
+			continue
+		}
+		if _, ok := known[rec.SandboxID]; !ok {
+			ids = append(ids, rec.SandboxID)
+		}
+	}
+	return ids
+}
+
 func applyPauseBindings(items []*types.SandboxBriefData, records []*pausesnap.Record,
-	labelFiltered, appendMissing bool) []*types.SandboxBriefData {
+	labelFiltered, appendMissing bool, createdAts map[string]time.Time) []*types.SandboxBriefData {
 	known := make(map[string]*types.SandboxBriefData, len(items))
 	for _, item := range items {
 		if item != nil && item.SandboxID != "" {
@@ -183,6 +215,11 @@ func applyPauseBindings(items []*types.SandboxBriefData, records []*pausesnap.Re
 		}
 		if item, ok := known[rec.SandboxID]; ok {
 			applyPauseBinding(item, rec)
+			if item.CreateAt == 0 {
+				if ts, ok := createdAts[rec.SandboxID]; ok && !ts.IsZero() {
+					item.CreateAt = ts.UnixNano()
+				}
+			}
 			continue
 		}
 		// CREATING / FAILED leave the sandbox running, so the node scan owns
@@ -198,6 +235,9 @@ func applyPauseBindings(items []*types.SandboxBriefData, records []*pausesnap.Re
 			continue
 		}
 		item := pauseBindingRow(rec)
+		if ts, ok := createdAts[rec.SandboxID]; ok && !ts.IsZero() {
+			item.CreateAt = ts.UnixNano()
+		}
 		known[rec.SandboxID] = item
 		items = append(items, item)
 	}
@@ -225,8 +265,7 @@ func isShimlessPauseStatus(status string) bool {
 }
 
 // pauseBindingRow renders a binding the node did not report. CreateAt stays
-// empty: the binding only knows when the pause happened, not when the sandbox
-// was created, and a wrong creation time is worse than none.
+// zero here; callers that can reach the durable spec fill it afterwards.
 func pauseBindingRow(rec *pausesnap.Record) *types.SandboxBriefData {
 	item := &types.SandboxBriefData{
 		SandboxID:       rec.SandboxID,

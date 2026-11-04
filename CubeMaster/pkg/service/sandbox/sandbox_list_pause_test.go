@@ -29,7 +29,7 @@ func TestApplyPauseBindingsEnrichesScannedRow(t *testing.T) {
 		Backend:      constants.SnapshotBackendS3,
 		RemoteStatus: constants.RemoteStatusReady,
 		UpdatedAt:    pausedAt,
-	}}, false, true)
+	}}, false, true, nil)
 
 	require.Len(t, got, 1)
 	require.Equal(t, "snap-1", got[0].PauseSnapshotID)
@@ -50,7 +50,7 @@ func TestApplyPauseBindingsAppendsRowMissingFromNodeScan(t *testing.T) {
 		Backend:      constants.SnapshotBackendS3,
 		RemoteStatus: constants.RemoteStatusInProgress,
 		UpdatedAt:    pausedAt,
-	}}, false, true)
+	}}, false, true, nil)
 
 	require.Len(t, got, 1)
 	require.Equal(t, "sb-2", got[0].SandboxID)
@@ -62,11 +62,38 @@ func TestApplyPauseBindingsAppendsRowMissingFromNodeScan(t *testing.T) {
 	require.Zero(t, got[0].CreateAt)
 }
 
+func TestApplyPauseBindingsFillsCreateAtForShimlessRow(t *testing.T) {
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	got := applyPauseBindings(nil, []*pausesnap.Record{{
+		SandboxID:    "sb-2",
+		SnapshotID:   "snap-2",
+		Status:       pausesnap.StatusReady,
+		RemoteStatus: constants.RemoteStatusReady,
+	}}, false, true, map[string]time.Time{"sb-2": createdAt})
+
+	require.Len(t, got, 1)
+	require.Equal(t, createdAt.UnixNano(), got[0].CreateAt)
+}
+
+func TestApplyPauseBindingsKeepsScannedCreateAt(t *testing.T) {
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	items := []*types.SandboxBriefData{{SandboxID: "sb-1", Status: 5, CreateAt: 42}}
+	got := applyPauseBindings(items, []*pausesnap.Record{{
+		SandboxID:    "sb-1",
+		SnapshotID:   "snap-1",
+		Status:       pausesnap.StatusReady,
+		RemoteStatus: constants.RemoteStatusReady,
+	}}, false, true, map[string]time.Time{"sb-1": createdAt})
+
+	require.Len(t, got, 1)
+	require.Equal(t, int64(42), got[0].CreateAt)
+}
+
 func TestApplyPauseBindingsSkipsUnfinishedPause(t *testing.T) {
 	got := applyPauseBindings(nil, []*pausesnap.Record{
 		{SandboxID: "sb-3", SnapshotID: "snap-3", Status: "CREATING"},
 		{SandboxID: "sb-4", SnapshotID: "snap-4", Status: pausesnap.StatusFailed},
-	}, false, true)
+	}, false, true, nil)
 
 	require.Empty(t, got)
 }
@@ -79,7 +106,7 @@ func TestApplyPauseBindingsSurfacesDeleteFailedLeftover(t *testing.T) {
 		Status:       pausesnap.StatusDeleteFailed,
 		Backend:      constants.SnapshotBackendS3,
 		RemoteStatus: constants.RemoteStatusReady,
-	}}, false, true)
+	}}, false, true, nil)
 
 	require.Len(t, got, 1, "a pause package the node could not sweep must stay visible")
 	require.Equal(t, "sb-stuck", got[0].SandboxID)
@@ -94,11 +121,11 @@ func TestApplyPauseBindingsSkipsAppendWhenLabelFiltered(t *testing.T) {
 		RemoteStatus: constants.RemoteStatusReady,
 	}}
 
-	require.Empty(t, applyPauseBindings(nil, records, true, true))
+	require.Empty(t, applyPauseBindings(nil, records, true, true, nil))
 
 	// A row the node did report still gets its pause state, filter or not.
 	items := []*types.SandboxBriefData{{SandboxID: "sb-5", Status: 5}}
-	got := applyPauseBindings(items, records, true, true)
+	got := applyPauseBindings(items, records, true, true, nil)
 	require.Len(t, got, 1)
 	require.Equal(t, constants.RemoteStatusReady, got[0].RemoteStatus)
 }
@@ -120,7 +147,7 @@ func TestApplyPauseBindingsDoesNotAppendOnIntermediatePage(t *testing.T) {
 		},
 	}
 
-	got := applyPauseBindings(scanned, records, false, false)
+	got := applyPauseBindings(scanned, records, false, false, nil)
 	require.Len(t, got, 1)
 	require.Equal(t, "sb-run", got[0].SandboxID)
 	require.Equal(t, "snap-run", got[0].PauseSnapshotID)
