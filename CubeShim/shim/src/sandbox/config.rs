@@ -39,12 +39,6 @@ pub const ANNO_PAUSE_SNAPSHOT_ID: &str = "cube.master.pause.snapshot.id";
 /// Present on create-from-runtime-snapshot (FromSnap). Same guest-mount
 /// contract as pause resume: reconnect host virtiofs, do not remount in-guest.
 pub const ANNO_RUNTIME_SNAPSHOT_ID: &str = "cube.master.runtime.snapshot.id";
-/// Pool cgroup path cubelet assigned to this sandbox (v1: /cube_sandbox/
-/// sandbox/<id>, v2 numa-bound: /cube_sandbox_v2/sandbox/numa<N>/<id>).
-/// Written by cubelet with overwrite semantics — request-side values of this
-/// key never win. The shim joins the group before launching the VMM so the
-/// restore runs under the target cpuset.mems.
-pub const ANNO_SANDBOX_CGROUP_PATH: &str = "cube.sandbox_cgroup_path";
 /// Opt-in for KVM dirty-page logging on guest RAM. Only an explicit
 /// (case-insensitive) "true" arms it; absent or any other value leaves the
 /// existing snapshot paths in charge.
@@ -87,9 +81,6 @@ pub struct Config {
     pub memory_dirty_log: bool,
     /// Extra kernel cmdline parameters injected through annotations.
     pub extra_kernel_params: Vec<String>,
-    /// Pool cgroup path from cubelet; None when cubelet did not send it
-    /// (older cubelet) — the shim then skips the early join entirely.
-    pub cgroup_path: Option<String>,
 }
 
 impl Default for Config {
@@ -120,7 +111,6 @@ impl Default for Config {
             use_passfd_io: false,
             memory_dirty_log: false,
             extra_kernel_params: Vec::new(),
-            cgroup_path: None,
         }
     }
 }
@@ -301,10 +291,6 @@ impl Config {
             use_passfd_io,
             memory_dirty_log,
             extra_kernel_params,
-            cgroup_path: anno
-                .get(ANNO_SANDBOX_CGROUP_PATH)
-                .map(|x| x.trim().to_string())
-                .filter(|x| !x.is_empty()),
         };
         Ok(c)
     }
