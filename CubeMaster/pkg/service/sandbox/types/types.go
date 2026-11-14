@@ -559,6 +559,8 @@ type ListCubeSandboxRes struct {
 	Data      []*SandboxBriefData `json:"data,omitempty"`
 }
 
+// SandboxBriefData is the list view of one sandbox. CreateAt and PauseAt are
+// Unix nanoseconds; EndAt is Unix milliseconds.
 type SandboxBriefData struct {
 	SandboxID  string `json:"sandbox_id,omitempty"`
 	Status     int32  `json:"status,omitempty"`
@@ -593,6 +595,10 @@ type GetCubeSandboxReq struct {
 	HostID        string `json:"host_id,omitempty"`
 	InstanceType  string `json:"instance_type,omitempty"`
 	ContainerPort int32  `json:"container_port,omitempty"`
+	// WithCreateAt asks the paused-sandbox synthesis to resolve the durable
+	// spec created_at. API detail reads set it; internal state checks do not,
+	// so the pause hot path never pays for the spec lookup.
+	WithCreateAt bool `json:"with_create_at,omitempty"`
 }
 
 type GetCubeSandboxRes struct {
@@ -601,6 +607,8 @@ type GetCubeSandboxRes struct {
 	Data      []*SandboxData `json:"data,omitempty"`
 }
 
+// SandboxData is the detail view of one sandbox. CreateAt is Unix
+// nanoseconds; EndAt is Unix milliseconds.
 type SandboxData struct {
 	SandboxID              string             `json:"sandbox_id,omitempty"`
 	Status                 int32              `json:"status,omitempty"`
@@ -615,6 +623,7 @@ type SandboxData struct {
 	ExposedPortEndpoint    string             `json:"exposed_port_endpoint,omitempty"`
 	ExposedPortMode        string             `json:"exposed_port_mode,omitempty"`
 	RequestedContainerPort int32              `json:"requested_container_port,omitempty"`
+	CreateAt               int64              `json:"create_at,omitempty"`
 	EndAt                  int64              `json:"end_at,omitempty"`
 	VolumeMounts           []*VolumeMountInfo `json:"volume_mounts,omitempty"`
 }
